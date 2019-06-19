@@ -1,12 +1,13 @@
-import scrapy
 import re
 import csv
-import pandas as pd
-from scrapy import FormRequest
 import json
+import scrapy
 import urllib
-from scrapy import Request
+import requests
+import pandas as pd
 
+from scrapy.http import FormRequest
+from scrapy import Request
 
 class SiteProductItem(scrapy.Item):
     ASIN = scrapy.Field()
@@ -16,9 +17,11 @@ class SiteProductItem(scrapy.Item):
 
 class MyScraper(scrapy.Spider):
     name = "scrapingdata"
-    allowed_domains = ['www.myseus.schneider-electric.com']
+    allowed_domains = ['myseus.schneider-electric.com', 'ims.wsecure.schneider-electric.com']
     DOMAIN_URL = 'https://www.myseus.schneider-electric.com'
-    LOGIN_URL = 'https://www.myseus.schneider-electric.com/mySchneider/#!/login'
+    LOGIN_URL = 'https://secureidentity.schneider-electric.com/identity/idp/login?app=0sp1H000000CabV' \
+                '&lang=en&gotoNew=0LUhMag8DktqLCSR9Qk2&idpDisable=TRUE'
+    LOGIN_REQUEST_URL = 'https://ims.wsecure.schneider-electric.com/opensso/UI/Login'
     START_URL = 'https://www.myseus.schneider-electric.com/mySchneider/#!/login'
     USERNAME = 'lenore@totalelectricny.com'
     PASSWORD = 'Zilch12@5614'
@@ -26,8 +29,25 @@ class MyScraper(scrapy.Spider):
     def __init__(self, **kwargs):
 
         self.input_file = 'Schneider_SquareD.csv'
-        self.headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)"
-                                      " Chrome/70.0.3538.102 Safari/537.36"
+        self.headers = {"accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+                        "accept-encoding": "gzip, deflate, br",
+                        "accept-language": "en-US,en;q=0.9",
+                        "cache-control": "max-age=0",
+                        "content-length": "205",
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        # "cookie": {
+                        #     "JSESSIONID": "60A2AF9288C2D9712A3DB1D18FFE48DC.ims_64",
+                        #     "amlbcookie": "03",
+                        #     "atidvisitor": "%7B%22name%22%3A%22atidvisitor%22%2C%22val%22%3A%7B%22vrn%22%3A%22-592419-"
+                        #                    "%22%7D%2C%22options%22%3A%7B%22path%22%3A%22%2F%22%2C%22session%22%3A157248"
+                        #                    "00%2C%22end%22%3A15724800%7D%7D",
+                        #     "AMAuthCookie": "AQIC5wM2LY4SfcyWBWJN6gLWTBPLmFEW4dqk9DS4ndKQcoA.*"
+                        #                     "AAJTSQACMDIAAlNLABM4NDU3NzQ4NzgzNDYyNzM4OTg5AAJTMQACMDM.*"
+                        # },
+                        "origin": "https://ims.wsecure.schneider-electric.com",
+                        # "referer": "https://ims.wsecure.schneider-electric.com/opensso/UI/Login?errorMessage=auth.failed&errorMessage=auth.failed",
+                        "upgrade-insecure-requests": "1",
+                        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.102 Safari/537.36"
                         }
 
         with open(self.input_file, 'r+', encoding='utf-8', errors='ignore') as csvfile:
@@ -43,27 +63,40 @@ class MyScraper(scrapy.Spider):
         yield scrapy.Request(url=start_url, callback=self.login)
 
     def login(self, response):
-        view_state = response.xpath("//input[@id='__VIEWSTATE']/@value").extract()[0]
-        payload = {
-            '__VIEWSTATE': view_state,
-            'p$lt$zoneContent$pageplaceholder$p$lt$zoneLeft$usercontrol$userControlElem$txtUsername': self.USERNAME,
-            'p$lt$zoneContent$pageplaceholder$p$lt$zoneLeft$usercontrol$userControlElem$txtPassword': self.PASSWORD,
-            'lng': 'en-US',
-            '__VIEWSTATEGENERATOR': 'A5343185',
-            'manScript_HiddenField': '',
-            'p$lt$zoneContent$pageplaceholder$p$lt$zoneLeft$usercontrol$userControlElem$ImgBtnLogin.x': '10',
-            'p$lt$zoneContent$pageplaceholder$p$lt$zoneLeft$usercontrol$userControlElem$ImgBtnLogin.y': '5',
-            '__EVENTARGUMENT': '',
-            '__EVENTTARGET': '',
 
+        form_data = {
+            'IDToken1': self.USERNAME,
+            'IDToken2': self.PASSWORD,
+            'IDButton': 'Log In',
+            'goto': '',
+            'gx_charset': 'UTF-8',
+            'gotoOnFail': '',
+            'SunQueryParamsString': 'ZXJyb3JNZXNzYWdlPWF1dGguZmFpbGVk',
+            'encoded': 'false',
+            'errorMessage': 'auth.failed'
         }
-        yield Request(url=self.LOGIN_URL,
-                      callback=self.parse_pages,
+
+        # payload = {
+        #     'IDToken1': self.USERNAME,
+        #     'IDToken2': self.PASSWORD,
+        #     'IDButton': 'Log In',
+        #     'goto': '',
+        #     'gx_charset': 'UTF-8'
+        # }
+
+        yield FormRequest(url=self.LOGIN_REQUEST_URL,
+                      callback=self.check_login,
                       headers=self.headers,
                       dont_filter=True,
                       method="POST",
-                      body=urllib.parse.urlencode(payload)
+                      formdata=form_data
+                      # body=urllib.parse.urlencode(payload)
                       )
+
+    def check_login(self, response):
+        check_login_equest_url = 'https://ims.wsecure.schneider-electric.com/opensso/idm/EndUser'
+        response.body = requests.get(check_login_equest_url)
+
 
     def parse_pages(self, response):
 
